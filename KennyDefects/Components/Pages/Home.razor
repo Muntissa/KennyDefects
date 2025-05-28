@@ -1,0 +1,155 @@
+﻿@page "/"
+@using System.IO
+@using KennyDefects.Services
+@using Microsoft.AspNetCore.Components.Forms
+@inject IWebHostEnvironment env
+
+@rendermode InteractiveServer
+
+<h3>Обнаружение дефектов поверхности (Canny Filter)</h3>
+
+<InputFile OnChange="OnInputFileChange" accept="image/*" />
+
+@if (ImageBytes != null)
+{
+    <h4>Исходное изображение</h4>
+    <img src="data:image/jpeg;base64,@Convert.ToBase64String(ImageBytes)" style="width:200px;height:200px;" />
+}
+
+@if (GrayBytes != null)
+{
+    <h4>Этап 1: Преобразование в оттенки серого</h4>
+    <p>Изображение переводится в градации серого для упрощения последующей обработки и уменьшения влияния цветовых шумов.</p>
+    <img src="data:image/png;base64,@Convert.ToBase64String(GrayBytes)" style="width:200px;height:200px;" />
+}
+
+@if (BlurBytes != null)
+{
+    <h4>Этап 2: Гауссово размытие</h4>
+    <p>
+        Размытие помогает уменьшить шум, который может стать ложным краем при обнаружении дефектов.
+        <br />Параметры: размер ядра (только нечётное число), сигма.
+    </p>
+    @* Ядро: *@ <input type = "number" min = "1" step = "2" max = "25" @bind = "GaussianKernel" style = "width:60px" />
+    @* Сигма: *@ <input type = "number" min = "0" max = "50" step = "1" @bind = "GaussianSigma" style = "width:60px" />
+
+        <button @onclick = "ApplyBlurParams" > Применить </button>
+
+        <img src = "data:image/png;base64,@Convert.ToBase64String(BlurBytes)" style = "width:200px;height:200px;" />
+}
+
+@if (DilateBytes != null)
+{
+    <h4>Этап 3: Дилатация</h4>
+    <p>
+        Дилатация расширяет белые области на изображении, что помогает усилить признаки дефектов для последующего детектирования.
+        <br />Параметры: размер ядра.
+    </p>
+    @* Ядро:*@ <input type = "number" min = "1" max = "25" step = "2" @bind = "DilateKernel" style = "width:60px" />
+
+    <button @onclick = "ApplyDilateParams" > Применить </button >
+
+    <img src = "data:image/png;base64,@Convert.ToBase64String(DilateBytes)" style = "width:200px;height:200px;" />
+}
+
+@if (CannyBytes != null)
+{
+    <h4>Этап 4: Детектор Кэнни (обнаружение краёв)</h4>
+    <p>
+        Этот этап выделяет границы дефектов на изображении с помощью фильтра Кэнни.
+        <br />Параметры: нижний и верхний порог.
+    </p>
+    @* Порог1:*@ <input type = "number" min = "1" max = "255" @bind = "CannyThreshold1" style = "width:60px" />
+    @* Порог2:  *@
+    <input type="number" min="1" max = "255" @bind = "CannyThreshold2" style = "width:60px" />
+
+    <button @onclick = "ApplyCannyParams" > Применить </button >
+
+    <img src = "data:image/png;base64,@Convert.ToBase64String(CannyBytes)" style = "width:200px;height:200px;" />
+}
+
+@if (DefectBoxesBytes != null)
+{
+    <h4>Дефекты выделены (красные прямоугольники)</h4>
+    <p>На этом изображении все найденные дефекты выделены красными прямоугольниками на основе xml-разметки.</p>
+    <img src="data:image/png;base64,@Convert.ToBase64String(DefectBoxesBytes)" style="width:200px;height:200px;" />
+}
+@if (ImageBytes != null)
+{
+    <button @onclick="DrawDefectBoxes">Показать дефекты</button>
+}
+
+@code {
+    byte[]? ImageBytes;
+    byte[]? GrayBytes;
+    byte[]? BlurBytes;
+    byte[]? DilateBytes;
+    byte[]? CannyBytes;
+    byte[]? DefectBoxesBytes;
+
+    int GaussianKernel { get; set; } = 5;
+    int GaussianSigma { get; set; } = 0;
+    int DilateKernel { get; set; } = 3;
+    int CannyThreshold1 { get; set; } = 100;
+    int CannyThreshold2 { get; set; } = 200;
+
+    string? ImgPath;
+
+    async Task OnInputFileChange(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        using var ms = new MemoryStream();
+        await file.OpenReadStream().CopyToAsync(ms);
+        ImageBytes = ms.ToArray();
+
+        ImgPath = Path.Combine(env.WebRootPath, "uploads", file.Name.Split(".").First() + ".jpg");
+        Directory.CreateDirectory(Path.GetDirectoryName(ImgPath)!);
+        await File.WriteAllBytesAsync(ImgPath, ImageBytes);
+
+        var proc = new ImageProcessorService();
+        GrayBytes = proc.ToGray(ImgPath);
+        BlurBytes = proc.GaussianBlur(GaussianKernel, GaussianSigma);
+        DilateBytes = proc.Dilate(DilateKernel);
+        CannyBytes = proc.Canny(CannyThreshold1, CannyThreshold2);
+
+        DefectBoxesBytes = null;
+        StateHasChanged();
+    }
+
+    void ApplyBlurParams()
+    {
+        if (ImgPath is null) return;
+        var proc = ImageProcessorService.Instance;
+        BlurBytes = proc.GaussianBlur(GaussianKernel, GaussianSigma);
+        DilateBytes = proc.Dilate(DilateKernel);
+        CannyBytes = proc.Canny(CannyThreshold1, CannyThreshold2);
+        DefectBoxesBytes = null;
+        StateHasChanged();
+    }
+
+    void ApplyDilateParams()
+    {
+        if (ImgPath is null) return;
+        var proc = ImageProcessorService.Instance;
+        DilateBytes = proc.Dilate(DilateKernel);
+        CannyBytes = proc.Canny(CannyThreshold1, CannyThreshold2);
+        DefectBoxesBytes = null;
+        StateHasChanged();
+    }
+
+    void ApplyCannyParams()
+    {
+        if (ImgPath is null) return;
+        var proc = ImageProcessorService.Instance;
+        CannyBytes = proc.Canny(CannyThreshold1, CannyThreshold2);
+        DefectBoxesBytes = null;
+        StateHasChanged();
+    }
+
+    async Task DrawDefectBoxes()
+    {
+        var proc = ImageProcessorService.Instance;
+        DefectBoxesBytes = proc.DrawDefectBoxes();
+        StateHasChanged();
+    }
+}
