@@ -103,6 +103,26 @@ namespace KennyDefects.Services
             }
             return rois;
         }
+
+        public byte[] DrawDefectBoxesOnCanny()
+        {
+            if (_canny == null)
+                throw new Exception("Canny image not computed!");
+
+            // Переводим Canny в 3 канала для рисования цветных прямоугольников
+            Mat cannyColor = new Mat();
+            Cv2.CvtColor(_canny, cannyColor, ColorConversionCodes.GRAY2BGR);
+
+            var boxes = GetAllRoiFromXml(_imgPath);
+            foreach (var roi in boxes)
+            {
+                var pt1 = new OpenCvSharp.Point(roi.x, roi.y);
+                var pt2 = new OpenCvSharp.Point(roi.x + roi.width, roi.y + roi.height);
+                Cv2.Rectangle(cannyColor, pt1, pt2, Scalar.Red, 2);
+            }
+
+            return cannyColor.ToBytes(".png");
+        }
     }
 
     public class RoiRect

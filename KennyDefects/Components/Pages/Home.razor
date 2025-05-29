@@ -6,78 +6,459 @@
 
 @rendermode InteractiveServer
 
-<h3>Обнаружение дефектов поверхности (Canny Filter)</h3>
+<PageTitle>Обнаружение дефектов поверхности (метод Кэнни)</PageTitle>
 
-<InputFile OnChange="OnInputFileChange" accept="image/*" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
 
-@if (ImageBytes != null)
-{
-    <h4>Исходное изображение</h4>
-    <img src="data:image/jpeg;base64,@Convert.ToBase64String(ImageBytes)" style="width:200px;height:200px;" />
-}
+<script>
+    window.cannyMagnifierMove = function (clientX, clientY, key) {
+        var img = document.getElementById(key + "-img");
+        var magnifier = document.getElementById("magnifier-" + key);
+        if (!img || !magnifier) return;
 
-@if (GrayBytes != null)
-{
-    <h4>Этап 1: Преобразование в оттенки серого</h4>
-    <p>Изображение переводится в градации серого для упрощения последующей обработки и уменьшения влияния цветовых шумов.</p>
-    <img src="data:image/png;base64,@Convert.ToBase64String(GrayBytes)" style="width:200px;height:200px;" />
-}
+        img.style.position = "relative";
+        magnifier.style.position = "absolute";
+        magnifier.style.pointerEvents = "none";
 
-@if (BlurBytes != null)
-{
-    <h4>Этап 2: Гауссово размытие</h4>
-    <p>
-        Размытие помогает уменьшить шум, который может стать ложным краем при обнаружении дефектов.
-        <br />Параметры: размер ядра (только нечётное число), сигма.
-    </p>
-    @* Ядро: *@ <input type = "number" min = "1" step = "2" max = "25" @bind = "GaussianKernel" style = "width:60px" />
-    @* Сигма: *@ <input type = "number" min = "0" max = "50" step = "1" @bind = "GaussianSigma" style = "width:60px" />
+        // Получаем позицию курсора относительно изображения
+        const rect = img.getBoundingClientRect();
+        let x = clientX - rect.left;
+        let y = clientY - rect.top;
 
-        <button @onclick = "ApplyBlurParams" > Применить </button>
+        // Проверка на попадание курсора в изображение
+        if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
+            magnifier.style.display = "none";
+            return;
+        }
 
-        <img src = "data:image/png;base64,@Convert.ToBase64String(BlurBytes)" style = "width:200px;height:200px;" />
-}
+        magnifier.style.display = "block";
+        // Позиционируем лупу относительно изображения
+        magnifier.style.left = (x - magnifier.offsetWidth / 2) + "px";
+        magnifier.style.top = (y - magnifier.offsetHeight / 2) + "px";
 
-@if (DilateBytes != null)
-{
-    <h4>Этап 3: Дилатация</h4>
-    <p>
-        Дилатация расширяет белые области на изображении, что помогает усилить признаки дефектов для последующего детектирования.
-        <br />Параметры: размер ядра.
-    </p>
-    @* Ядро:*@ <input type = "number" min = "1" max = "25" step = "2" @bind = "DilateKernel" style = "width:60px" />
+        // Центрируем увеличенное изображение внутри лупы
+        var imgInMagnifier = magnifier.querySelector("img");
+        var zoom = 2.2;
+        imgInMagnifier.style.width = img.offsetWidth * zoom + "px";
+        imgInMagnifier.style.height = img.offsetHeight * zoom + "px";
+        imgInMagnifier.style.left = -(x * zoom - magnifier.offsetWidth / 2) + "px";
+        imgInMagnifier.style.top = -(y * zoom - magnifier.offsetHeight / 2) + "px";
+    };
 
-    <button @onclick = "ApplyDilateParams" > Применить </button >
+    window.cannyMagnifierEnter = function (key) {
+        var magnifier = document.getElementById("magnifier-" + key);
+        if (magnifier) magnifier.style.display = "block";
+    };
+    window.cannyMagnifierLeave = function (key) {
+        var magnifier = document.getElementById("magnifier-" + key);
+        if (magnifier) magnifier.style.display = "none";
+    };
+</script>
 
-    <img src = "data:image/png;base64,@Convert.ToBase64String(DilateBytes)" style = "width:200px;height:200px;" />
-}
 
-@if (CannyBytes != null)
-{
-    <h4>Этап 4: Детектор Кэнни (обнаружение краёв)</h4>
-    <p>
-        Этот этап выделяет границы дефектов на изображении с помощью фильтра Кэнни.
-        <br />Параметры: нижний и верхний порог.
-    </p>
-    @* Порог1:*@ <input type = "number" min = "1" max = "255" @bind = "CannyThreshold1" style = "width:60px" />
-    @* Порог2:  *@
-    <input type="number" min="1" max = "255" @bind = "CannyThreshold2" style = "width:60px" />
 
-    <button @onclick = "ApplyCannyParams" > Применить </button >
+<style>
+    body, html {
+        min-height: 100vh;
+        background: linear-gradient(120deg, #181c29 0%, #6366f1 100%);
+        font-family: 'Inter', Arial, sans-serif;
+    }
 
-    <img src = "data:image/png;base64,@Convert.ToBase64String(CannyBytes)" style = "width:200px;height:200px;" />
-}
+    .canny-root {
+        max-width: 1000px;
+        margin: 40px auto 0 auto;
+        background: rgba(255,255,255,0.07);
+        border-radius: 26px;
+        box-shadow: 0 8px 32px rgba(31,41,55,0.12);
+        padding: 42px 32px 32px 32px;
+        color: #f3f4f6;
+    }
 
-@if (DefectBoxesBytes != null)
-{
-    <h4>Дефекты выделены (красные прямоугольники)</h4>
-    <p>На этом изображении все найденные дефекты выделены красными прямоугольниками на основе xml-разметки.</p>
-    <img src="data:image/png;base64,@Convert.ToBase64String(DefectBoxesBytes)" style="width:200px;height:200px;" />
-}
-@if (ImageBytes != null)
-{
-    <button @onclick="DrawDefectBoxes">Показать дефекты</button>
-}
+    .canny-title {
+        text-align: center;
+        font-size: 2.1rem;
+        font-weight: 800;
+        color: #fff;
+        margin-bottom: 12px;
+        letter-spacing: -2px;
+    }
+
+    .canny-sub {
+        text-align: center;
+        color: #a5b4fc;
+        margin-bottom: 32px;
+        font-size: 1.17rem;
+        font-weight: 500;
+    }
+
+    .canny-card {
+        background: rgba(30, 41, 59, 0.32);
+        border-radius: 19px;
+        box-shadow: 0 2px 12px rgba(49, 46, 129, 0.09);
+        padding: 28px 28px 18px 28px;
+        margin-bottom: 30px;
+        transition: box-shadow 0.2s;
+    }
+
+        .canny-card h4 {
+            color: #818cf8;
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
+        .canny-card img {
+            display: block;
+            margin: 20px auto 0 auto;
+            border-radius: 16px;
+            border: 2px solid #818cf8;
+            background: #232946;
+            width: 340px;
+            height: 340px;
+            object-fit: contain;
+            box-shadow: 0 2px 8px #4f46e52e;
+            cursor: zoom-in;
+            transition: box-shadow 0.18s;
+            position: relative;
+        }
+
+    .canny-params {
+        margin: 20px auto 0 auto;
+        display: flex;
+        gap: 18px;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        padding-bottom: 4px;
+    }
+
+        .canny-params label {
+            color: #a5b4fc;
+            font-weight: 600;
+            margin-right: 5px;
+        }
+
+    .canny-input {
+        width: 60px;
+        padding: 6px 8px;
+        border-radius: 8px;
+        border: 1.7px solid #818cf8;
+        background: #232946;
+        color: #fff;
+        font-size: 1rem;
+        font-family: inherit;
+        margin-right: 10px;
+        outline: none;
+        transition: border 0.18s;
+    }
+
+        .canny-input:focus {
+            border: 2px solid #6366f1;
+        }
+
+    .canny-btn {
+        background: linear-gradient(90deg, #6366f1 0%, #818cf8 100%);
+        border: none;
+        color: #fff;
+        font-weight: 700;
+        border-radius: 9px;
+        padding: 8px 30px;
+        font-size: 1rem;
+        box-shadow: 0 2px 8px #6366f11a;
+        cursor: pointer;
+        margin-left: 10px;
+        margin-top: 4px;
+        transition: background 0.18s, color 0.18s;
+    }
+
+        .canny-btn:active {
+            background: #6366f1;
+        }
+
+    .canny-file {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-bottom: 30px;
+    }
+
+        .canny-file input[type="file"] {
+            display: none;
+        }
+
+        .canny-file label {
+            background: linear-gradient(90deg, #6366f1 0%, #818cf8 100%);
+            color: #fff;
+            padding: 12px 38px;
+            border-radius: 14px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            cursor: pointer;
+            box-shadow: 0 2px 8px #6366f11a;
+            margin-bottom: 12px;
+            transition: background 0.2s;
+        }
+
+            .canny-file label:hover {
+                background: #6366f1;
+            }
+
+    .canny-file-info {
+        color: #a5b4fc;
+        font-size: 1.04rem;
+        margin-top: 4px;
+    }
+
+    .canny-flex-imgs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 40px;
+        justify-content: center;
+    }
+
+        .canny-flex-imgs > div {
+            flex: 1 1 200px;
+            min-width: 180px;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .canny-flex-imgs p {
+            color: #bdbdfc;
+            margin-bottom: 8px;
+        }
+=
+    /* Лупа */
+    .magnifier-cursor {
+        cursor: zoom-in;
+    }
+
+    .magnifier {
+        display: none;
+        position: absolute;
+        border: 3px solid #6366f1;
+        border-radius: 50%;
+        width: 150px;
+        height: 150px;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 20;
+        box-shadow: 0 4px 18px #6366f17d;
+        background: #232946;
+    }
+
+        .magnifier img {
+            position: absolute;
+            left: 0;
+            top: 0;
+            user-select: none;
+            pointer-events: none;
+        }
+
+    @@media (max-width: 700px) {
+        .canny-root {
+            padding: 14px 2vw;
+        }
+
+        .canny-card {
+            padding: 14px 3vw 10px 3vw;
+        }
+
+        .canny-title {
+            font-size: 1.2rem;
+        }
+
+        .canny-flex-imgs {
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .canny-card img {
+            max-width: 95vw;
+            width: 240px;
+            height: 240px;
+        }
+
+        .magnifier, .magnifier img {
+            width: 100px;
+            height: 100px;
+        }
+
+        .modal-img-wrap img {
+            max-width: 98vw;
+            max-height: 60vh;
+        }
+    }
+</style>
+
+<div class="canny-root">
+    <div class="canny-title">Обнаружение дефектов поверхности</div>
+    <div class="canny-sub">
+        <span style="font-weight:600">Метод Кэнни (Canny Edge Detector)</span><br />
+        Загрузите изображение поверхности — по шагам увидите этапы выделения дефектов.
+    </div>
+
+    <div class="canny-file">
+        <label for="file-upload">Загрузить изображение</label>
+        <InputFile id="file-upload" OnChange="OnInputFileChange" accept="image/*" style="display:none;" />
+        @if (ImageBytes != null)
+        {
+            <span class="canny-file-info">Файл загружен</span>
+        }
+    </div>
+
+    @if (ImageBytes != null)
+    {
+        <div class="canny-card">
+            <h4>Исходное изображение</h4>
+            <div style="position:relative; display:flex; justify-content:center; align-items:center; width:fit-content; margin:auto;">
+                <img src="data:image/jpeg;base64,@Convert.ToBase64String(ImageBytes)"
+                     class="magnifier-cursor"
+                     @onmousemove="@(e => MagnifierMove(e, "original"))"
+                     @onmouseenter="@(e => MagnifierEnter(e, "original"))"
+                     @onmouseleave="@(e => MagnifierLeave("original"))"
+                     id="original-img"
+                     style="box-shadow:0 0 0 2px #6366f1;" />
+                <div id="magnifier-original" class="magnifier">
+                    <img src="data:image/jpeg;base64,@Convert.ToBase64String(ImageBytes)" draggable="false" />
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (GrayBytes != null)
+    {
+        <div class="canny-card">
+            <h4>Этап 1: Градации серого</h4>
+            <p>Изображение переводится в оттенки серого, чтобы упростить обработку и снизить влияние шумов.</p>
+            <div style="position:relative; display:flex; justify-content:center; align-items:center; width:fit-content; margin:auto;">
+                <img src="data:image/png;base64,@Convert.ToBase64String(GrayBytes)"
+                     class="magnifier-cursor"
+                     @onmousemove="@(e => MagnifierMove(e, "gray"))"
+                     @onmouseenter="@(e => MagnifierEnter(e, "gray"))"
+                     @onmouseleave="@(e => MagnifierLeave("gray"))"
+                     id="gray-img" />
+                <div id="magnifier-gray" class="magnifier">
+                    <img src="data:image/png;base64,@Convert.ToBase64String(GrayBytes)" draggable="false" />
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (BlurBytes != null)
+    {
+        <div class="canny-card">
+            <h4>Этап 2: Гауссово размытие</h4>
+            <p>Снижаем шумы, которые могут создавать ложные края.</p>
+            <div style="position:relative; display:flex; justify-content:center; align-items:center; width:fit-content; margin:auto;">
+                <img src="data:image/png;base64,@Convert.ToBase64String(BlurBytes)"
+                     class="magnifier-cursor"
+                     @onmousemove="@(e => MagnifierMove(e, "blur"))"
+                     @onmouseenter="@(e => MagnifierEnter(e, "blur"))"
+                     @onmouseleave="@(e => MagnifierLeave("blur"))"
+                     id="blur-img" />
+                <div id="magnifier-blur" class="magnifier">
+                    <img src="data:image/png;base64,@Convert.ToBase64String(BlurBytes)" draggable="false" />
+                </div>
+            </div>
+            <div class="canny-params">
+                <label>Ядро:</label>
+                <input class="canny-input" type="number" min="1" step="2" max="25" @bind="GaussianKernel" />
+                <label>Сигма:</label>
+                <input class="canny-input" type="number" min="0" max="50" step="1" @bind="GaussianSigma" />
+                <button class="canny-btn" @onclick="ApplyBlurParams">Применить</button>
+            </div>
+        </div>
+    }
+
+    @if (DilateBytes != null)
+    {
+        <div class="canny-card">
+            <h4>Этап 3: Дилатация</h4>
+            <p>Дилатация расширяет светлые области, чтобы усилить признаки дефектов.</p>
+            <div style="position:relative; display:flex; justify-content:center; align-items:center; width:fit-content; margin:auto;">
+                <img src="data:image/png;base64,@Convert.ToBase64String(DilateBytes)"
+                     class="magnifier-cursor"
+                     @onmousemove="@(e => MagnifierMove(e, "dilate"))"
+                     @onmouseenter="@(e => MagnifierEnter(e, "dilate"))"
+                     @onmouseleave="@(e => MagnifierLeave("dilate"))"
+                     id="dilate-img" />
+                <div id="magnifier-dilate" class="magnifier">
+                    <img src="data:image/png;base64,@Convert.ToBase64String(DilateBytes)" draggable="false" />
+                </div>
+            </div>
+            <div class="canny-params">
+                <label>Ядро:</label>
+                <input class="canny-input" type="number" min="1" max="25" step="2" @bind="DilateKernel" />
+                <button class="canny-btn" @onclick="ApplyDilateParams">Применить</button>
+            </div>
+        </div>
+    }
+
+    @if (CannyBytes != null)
+    {
+        <div class="canny-card">
+            <h4>Этап 4: Детектор Кэнни</h4>
+            <p>
+                Выделение границ дефектов. Можно настроить пороги для фильтра.
+            </p>
+            <div style="position:relative; display:flex; justify-content:center; align-items:center; width:fit-content; margin:auto;">
+                <img src="data:image/png;base64,@Convert.ToBase64String(CannyBytes)"
+                     class="magnifier-cursor"
+                     @onmousemove="@(e => MagnifierMove(e, "canny"))"
+                     @onmouseenter="@(e => MagnifierEnter(e, "canny"))"
+                     @onmouseleave="@(e => MagnifierLeave("canny"))"
+                     id="canny-img" />
+                <div id="magnifier-canny" class="magnifier">
+                    <img src="data:image/png;base64,@Convert.ToBase64String(CannyBytes)" draggable="false" />
+                </div>
+            </div>
+            <div class="canny-params">
+                <label>Порог1:</label>
+                <input class="canny-input" type="number" min="1" max="255" @bind="CannyThreshold1" />
+                <label>Порог2:</label>
+                <input class="canny-input" type="number" min="1" max="255" @bind="CannyThreshold2" />
+                <button class="canny-btn" @onclick="ApplyCannyParams">Применить</button>
+            </div>
+        </div>
+    }
+
+    @if (DefectBoxesBytes != null && DefectBoxesOnCannyBytes != null)
+    {
+        <div class="canny-card">
+            <h4>Обнаруженные дефекты (выделение)</h4>
+            <div class="canny-flex-imgs">
+                <div>
+                    <p>Дефекты на оригинале (красные прямоугольники)</p>
+                    <div style="position:relative; display:flex; justify-content:center; align-items:center; width:fit-content; margin:auto;">
+                        <img src="data:image/png;base64,@Convert.ToBase64String(DefectBoxesBytes)"
+                             class="magnifier-cursor"
+                             @onmousemove="@(e => MagnifierMove(e, "boxes"))"
+                             @onmouseenter="@(e => MagnifierEnter(e, "boxes"))"
+                             @onmouseleave="@(e => MagnifierLeave("boxes"))"
+                             id="boxes-img" />
+                        <div id="magnifier-boxes" class="magnifier">
+                            <img src="data:image/png;base64,@Convert.ToBase64String(DefectBoxesBytes)" draggable="false" />
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <p>Дефекты после фильтра Кэнни</p>
+                    <div style="position:relative; display:flex; justify-content:center; align-items:center; width:fit-content; margin:auto;">
+                        <img src="data:image/png;base64,@Convert.ToBase64String(DefectBoxesOnCannyBytes)"
+                             class="magnifier-cursor"
+                             @onmousemove="@(e => MagnifierMove(e, "boxesCanny"))"
+                             @onmouseenter="@(e => MagnifierEnter(e, "boxesCanny"))"
+                             @onmouseleave="@(e => MagnifierLeave("boxesCanny"))"
+                             id="boxesCanny-img" />
+                        <div id="magnifier-boxesCanny" class="magnifier">
+                            <img src="data:image/png;base64,@Convert.ToBase64String(DefectBoxesOnCannyBytes)" draggable="false" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
 
 @code {
     byte[]? ImageBytes;
@@ -86,6 +467,7 @@
     byte[]? DilateBytes;
     byte[]? CannyBytes;
     byte[]? DefectBoxesBytes;
+    byte[]? DefectBoxesOnCannyBytes;
 
     int GaussianKernel { get; set; } = 5;
     int GaussianSigma { get; set; } = 0;
@@ -94,6 +476,7 @@
     int CannyThreshold2 { get; set; } = 200;
 
     string? ImgPath;
+    string? modalImage;
 
     async Task OnInputFileChange(InputFileChangeEventArgs e)
     {
@@ -107,49 +490,80 @@
         await File.WriteAllBytesAsync(ImgPath, ImageBytes);
 
         var proc = new ImageProcessorService();
+
         GrayBytes = proc.ToGray(ImgPath);
         BlurBytes = proc.GaussianBlur(GaussianKernel, GaussianSigma);
         DilateBytes = proc.Dilate(DilateKernel);
         CannyBytes = proc.Canny(CannyThreshold1, CannyThreshold2);
 
-        DefectBoxesBytes = null;
+        DefectBoxesBytes = proc.DrawDefectBoxes();
+        DefectBoxesOnCannyBytes = proc.DrawDefectBoxesOnCanny();
+
         StateHasChanged();
     }
 
     void ApplyBlurParams()
     {
-        if (ImgPath is null) return;
+        if (ImgPath is null)
+            return;
+
         var proc = ImageProcessorService.Instance;
+
         BlurBytes = proc.GaussianBlur(GaussianKernel, GaussianSigma);
         DilateBytes = proc.Dilate(DilateKernel);
         CannyBytes = proc.Canny(CannyThreshold1, CannyThreshold2);
-        DefectBoxesBytes = null;
+        DefectBoxesBytes = proc.DrawDefectBoxes();
+        DefectBoxesOnCannyBytes = proc.DrawDefectBoxesOnCanny();
+
         StateHasChanged();
     }
 
     void ApplyDilateParams()
     {
-        if (ImgPath is null) return;
+        if (ImgPath is null)
+            return;
+
         var proc = ImageProcessorService.Instance;
+
         DilateBytes = proc.Dilate(DilateKernel);
         CannyBytes = proc.Canny(CannyThreshold1, CannyThreshold2);
-        DefectBoxesBytes = null;
+        DefectBoxesBytes = proc.DrawDefectBoxes();
+        DefectBoxesOnCannyBytes = proc.DrawDefectBoxesOnCanny();
+
         StateHasChanged();
     }
 
     void ApplyCannyParams()
     {
-        if (ImgPath is null) return;
+        if (ImgPath is null)
+            return;
+
         var proc = ImageProcessorService.Instance;
+
         CannyBytes = proc.Canny(CannyThreshold1, CannyThreshold2);
-        DefectBoxesBytes = null;
+        DefectBoxesBytes = proc.DrawDefectBoxes();
+        DefectBoxesOnCannyBytes = proc.DrawDefectBoxesOnCanny();
+
         StateHasChanged();
     }
 
-    async Task DrawDefectBoxes()
+    // ------------------ Лупа (Magnifier) -------------------
+    [JSInvokable]
+    public async Task MagnifierMove(MouseEventArgs e, string imgKey)
     {
-        var proc = ImageProcessorService.Instance;
-        DefectBoxesBytes = proc.DrawDefectBoxes();
-        StateHasChanged();
+        await JS.InvokeVoidAsync("cannyMagnifierMove", e.ClientX, e.ClientY, imgKey);
     }
+    [JSInvokable]
+    public async Task MagnifierEnter(MouseEventArgs e, string imgKey)
+    {
+        await JS.InvokeVoidAsync("cannyMagnifierEnter", imgKey);
+    }
+    [JSInvokable]
+    public async Task MagnifierLeave(string imgKey)
+    {
+        await JS.InvokeVoidAsync("cannyMagnifierLeave", imgKey);
+    }
+
+    [Inject]
+    public IJSRuntime JS { get; set; }
 }
