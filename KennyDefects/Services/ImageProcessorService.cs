@@ -53,13 +53,6 @@ namespace KennyDefects.Services
             return _dilate.ToBytes(".png");
         }
 
-        public byte[] ApplyRoi(RoiRect roi)
-        {
-            var rect = new Rect(roi.x, roi.y, roi.width, roi.height);
-            _roi = new Mat(_dilate, rect);
-            return _roi.ToBytes(".png");
-        }
-
         public byte[] Canny(int threshold1 = 100, int threshold2 = 200)
         {
             _canny = new Mat();
